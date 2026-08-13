@@ -11,12 +11,28 @@ metadata:
 
 # NixOS host security hardening
 
-For the user's setup: `nixos-desktop` is deliberately internet-exposed
-(router port-forwards 22/80/443; sshd pubkey-only, root denied,
-kbd-interactive off). Internet SSH scanner noise is CONSTANT and expected —
-preauth root probes every ~2 min from rotating netblocks. The
-`security-log-triage` classifier (gemma4:12b, timer-driven) will keep
-flagging it. Most alerts are noise to mitigate, not incidents to chase.
+Current posture on `nixos-desktop` (as of 2026-08, flake
+`modules/services/default.nix`):
+
+- WAN surface is **80/443 only** (nginx → public navidrome). The router may
+  still forward 22, but `services.openssh.openFirewall = false`, so the
+  input chain does **not** accept 22 on `wlan0`/`enp6s0`. sshd listens on
+  0.0.0.0:22; the only accepted path is `tailscale0`
+  (`firewall.trustedInterfaces`).
+- fail2ban and the `scanner-blocks` nft table were **removed on purpose**
+  when WAN SSH closed. Do not put them back unless `openFirewall` is
+  flipped true again. A classifier that still screams about preauth root
+  probes is stale context, not an incident.
+- Steam `dedicatedServer` / `remotePlay` / `localNetworkGameTransfers`
+  `openFirewall` are **false** as of the 2026-08 flake cleanup. Do not flip
+  them back unless a dedicated server or Remote Play is actually in use.
+
+`security-log-triage` (gemma4:12b) will still classify refused SSH noise if
+the journal filter matches it. Treat that as expected background, not a
+reason to re-open 22 or re-add fail2ban.
+
+The fail2ban / scanner-blocks recipes below are **historical** — keep them
+only for if WAN SSH is ever re-opened.
 
 ## 1. Triage: read the machine, never the summary
 
@@ -124,10 +140,15 @@ timeout 30 run0 nft -c -f "$RULES"; grep -q '92.118.39.0/24' "$RULES"
 ```
 
 Then `nixfmt` + `statix check` + `deadnix` (or whole-flake `nix flake
-check`), commit, and hand the operator the exact
-`sudo nixos-rebuild switch --flake /persistent/etc/nixos#nixos-desktop`
-(never run it yourself). Keep the ephemeral nft block live until they
-switch.
+check`), and hand the operator
+`run0 nixos-rebuild switch --flake /persistent/etc/nixos#nixos-desktop`
+(never activate it yourself; there is no `sudo` on this host).
+
+A **new** `.nix` file is invisible to flake eval until it is `git add`ed.
+`nixos-rebuild build` copies the tree from git, so an untracked
+`desktop/configuration/searx.nix` fails with
+`getting status of '/nix/store/...-source/.../searx.nix': No such file`.
+Stage it, then rebuild. Existing tracked edits do not need this.
 
 ## Pitfalls
 
@@ -142,11 +163,41 @@ switch.
 - Do not add drops for allowed ports via `extraInputRules` (dead rule).
 - A hardcoded netblock block is whack-a-mole: pair it with fail2ban so fresh
   scanner IPs are handled adaptively.
+- **Do not restore fail2ban / scanner-blocks while SSH is tailnet-only.**
+  Those existed to mop up WAN 22. Re-adding them without
+  `openssh.openFirewall = true` is dead config.
+- `trustedInterfaces` is `tailscale0` only. Anything on the tailnet
+  bypasses port rules. Bind admin UIs / unauthenticated APIs to 127.0.0.1.
+  Do not re-add `virbr0` — there is no libvirt bridge.
+- Steam `*.openFirewall` flags are closed. Re-opening them punches
+  27015/27036/27037/27040 on every interface, including WAN.
+- `ip_unprivileged_port_start = 80` (desktop, so nginx can bind without
+  CAP_NET_BIND_SERVICE) makes every unused allowed port a bindable
+  internet hole for any local uid.
+- systemd fragment overrides (`systemd.services.<name> = { ... }`) without
+  `services.<name>.enable` produce a `bad-setting` unit (no ExecStart)
+  that systemd refuses on every boot. Delete the fragment or enable the
+  service.
+- Activation is operator-only. There is no `sudo` on this host — hand
+  `run0 nixos-rebuild switch --flake /persistent/etc/nixos#nixos-desktop`.
+- Dropping a GPT swap partition from `disko.nix` does **not** shrink the
+  table on an already-installed disk and is not needed to stop using it.
+  `swapDevices = lib.mkForce [ { device = "/swap/swapfile"; } ];` leaves
+  the partition in place and drops it from fstab. Reclaiming the 2G needs
+  a repartition — operator call.
+- Local SearXNG is `services.searx` on `127.0.0.1:8081` with `formats =
+  [html json]`. Secret goes through `sops.templates."searx.env"`
+  (`SEARX_SECRET_KEY=${config.sops.placeholder.searx-secret}`), not a
+  world-readable settings file. Hermes/Claude skills and `SEARXNG_URL`
+  already point there — do not stand up a second instance or a public
+  vhost.
 
 ## Support files
 
 - `references/fail2ban-1.1-filter-authoring.md` — failure-id mechanism, F-
   tag syntax, prefregex/failregex split, systemd-backend line format, NixOS
-  module internals.
+  module internals. Keep for if WAN SSH is ever re-opened.
+- `references/flake-audit-2026-08.md` — leftover inputs, secrets, groups,
+  preservation owners found after WAN SSH closed.
 - `scripts/validate-built-fail2ban.sh` — re-runnable validation of a BUILT
   system's fail2ban config, generated filter, and nftables ruleset.
