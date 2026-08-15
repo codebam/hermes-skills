@@ -81,6 +81,45 @@ Cheap validators, run before commit:
   (no JS under `data/shell`/`tests/*.js`), explain that the JS suite is
   irrelevant to them, but run it anyway to close the verification gate.
 
+## Pitfalls
+
+### The Cargo.lock gotcha (version bumps with `--locked` builds)
+
+When bumping the workspace version in a Rust project (the root `Cargo.toml`
+`[workspace]` `version = "..."` field), the version in `Cargo.lock` is NOT
+updated automatically by the text edit — it is a separate file managed by
+`cargo`. If the PKGBUILD or CI runs `cargo fetch --locked` or `cargo build
+--locked`, the mismatch between `Cargo.toml` (new version) and `Cargo.lock`
+(old version) causes an immediate build failure:
+
+```
+error: cannot update the lock file .../Cargo.lock because --locked was passed to prevent this
+```
+
+**Fix:** After bumping the version in `Cargo.toml`, run `cargo fetch` (or
+`nix run nixpkgs#cargo -- fetch` on NixOS) to regenerate `Cargo.lock`, then
+commit both files together. If the release commit already went out without
+the lockfile update, `git add Cargo.lock && git commit --amend` it, move the
+tag (`git tag -d vX.Y.Z && git tag -a vX.Y.Z`), and force-push.
+
+This is the single most common release-cutting mistake for Rust + Arch/AUR
+workflows.
+
+### Empty AUR repos on first push
+
+AUR repos registered at `aur.archlinux.org` but never pushed to clone as
+empty repositories with no branches. `git commit` on an unborn branch means
+`HEAD` points nowhere, and `git push origin master` fails with:
+
+```
+error: src refspec master does not match any
+```
+
+**Fix:** `git checkout -b master` BEFORE `git add`/`git commit`, so the
+commit lands on a named branch. Then `git push origin master` succeeds.
+
+See `references/release-cutting-workflow.md` for full push mechanics.
+
 ## NixOS host notes
 
 - Every shell command in a shared worktree: export

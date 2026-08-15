@@ -129,6 +129,27 @@ recurring class of work; this skill is the map.
   `workspace.list` must be a real one — discover it with `output.query` → `output.layout`
   (`HEADLESS-1` headless). Listen on the socket with a deadline; the compositor keeps
   publishing other events, so scan lines for the target event rather than waiting for silence.
+- **D-Bus test dependency: dbus-run-session on PATH != a working bus.**
+  The `screencast-restore` test starts a private D-Bus session bus via `dbus-run-session`.
+  On a hosted CI runner (ubuntu-latest), the binary is installed but
+  `/etc/dbus-1/session.conf` may be absent -- the daemon crashes on startup with
+  `Failed to open "/etc/dbus-1/session.conf"`, and the test returns exit 1 instead of
+  skipping gracefully. The test now has a guard that checks for the config file and
+  exits 77 (skip) before reaching `exec dbus-run-session`.
+
+  When adding or debugging tests that use D-Bus, replicate the same guard pattern:
+  ```sh
+  if ! command -v dbus-run-session >/dev/null; then
+      echo "SKIP: no dbus-run-session"
+      exit 77
+  fi
+  if [ ! -f /etc/dbus-1/session.conf ]; then
+      echo "SKIP: no dbus session config"
+      exit 77
+  fi
+  ```
+  `scripts/integration.sh` maps exit 77 to a printed "skipped" line (not a failure).
+  Any non-zero, non-77 exit is counted as a test failure.
 
 ## Support files
 - `references/protocol-research.md` — deep research on the three hand-written protocols

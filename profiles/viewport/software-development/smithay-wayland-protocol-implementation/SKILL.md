@@ -121,6 +121,11 @@ field names before writing the `match`.
   `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'` (repo owned
   by `hermes`, you run as `codebam` in the `hermes` group; writes work, git needs the override).
 - Commit to the branch; do NOT push/merge into main.
+- **Check your cwd**: tools like `patch`, `write_file`, and `terminal` work relative to the
+  session's cwd, not the worktree you intend to edit. After creating a worktree with
+  `git worktree add .worktrees/<name> -b feat/<name>`, `cd` into it explicitly before editing.
+  After the edit, verify with `git diff main --stat` from inside the worktree — if it reports no
+  changes but you know you edited files, your edits went to the main worktree instead.
 
 ## Support files
 - `references/session-one-four-protocols.md` — deep research from the first session: exact
