@@ -34,8 +34,14 @@ plugin. Sean's OpenSandbox backend (`/persistent/etc/nixos/home/hermes-opensandb
 - Subclass `tools.environments.base.BaseEnvironment` to inherit the
   login-shell snapshot bootstrap (`_snapshot_timeout`), cwd-marker tracking,
   timeouts, output caps. Implement `_run_bash() -> Popen` (merge stderr into
-  stdout) + `cleanup()`. Set `_stdin_mode = "heredoc"` when the transport has
-  no stdin. Wrapped command scripts are bash-specific (declare -F, shopt).
+  stdout) + `cleanup()`. Wrapped command scripts are bash-specific
+  (declare -F, shopt). Avoid `_stdin_mode = "heredoc"`: the base appends the
+  heredoc after the whole script, so its redirect binds to the script's LAST
+  command rather than the reader, and heredoc framing adds a trailing
+  newline — a payload for the file tools (sha256-checked, byte-exact) can
+  never pass. Where the transport can reach the container's filesystem API,
+  stage the payload and run the command with `< file`, which is the base's
+  "pipe" contract delivered by the executor.
 - `is_container = False` for backends that expose HOST paths by bind mount:
   `True` makes core sanitize host-looking cwds, flip file-path resolution to
   container semantics, and (via the `skip_container_guards` default) skip
@@ -76,6 +82,15 @@ plugin. Sean's OpenSandbox backend (`/persistent/etc/nixos/home/hermes-opensandb
   `CommandExecError` with a negative value → map to rc 124 + a stderr note.
   State (`.id`/`.lock`) lives under `~/.local/state/opensandbox/<namespace>/`,
   flock-serialized; `destroy()` deletes a sandbox.
+- execd's per-line stdout/stderr events arrive stripped EXCEPT for blank
+  lines, which carry their newline — re-emitting every event as
+  `text + "\n"` doubles every blank line in every consumer: file tools
+  return content taller than the file with drifting line numbers, and
+  patch reads its own inflated view back so its verification always
+  fails even though the write landed. Append a newline only when the
+  text does not already end in one, and settle the emission contract by
+  replaying the server's event sequence through `run_command` with a
+  fake handlers object (emitted bytes must equal the original stream).
 
 ## Verification workflow
 
@@ -85,3 +100,14 @@ build: load the built plugin dir via `importlib.util.spec_from_file_location`
 `execute()` against the live server; check container hostname, host-path
 write-through, cwd tracking, exit codes, and every fallback mode (default,
 strict, bypass).
+
+Where the server is unreachable, split the job instead of skipping it:
+
+- Compile/lint the Python extracted from the nix `''` block, then prove the
+extraction faithful by diffing it against the built artifact
+(`/nix/store/*-<name>/bin/<name>`) — only the deliberate `${...}`
+substitutions may differ, which shows the compiler ran on the real text.
+- Drive a helper-process executor against a fake SDK object that records
+`commands.run(...)` and `files.write_file(...)`, then execute the composed
+command for real and check the effect byte for byte (the file hash the tool
+would verify).

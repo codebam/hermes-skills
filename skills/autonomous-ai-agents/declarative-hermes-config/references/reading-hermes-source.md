@@ -56,4 +56,5 @@ the `?ref=` query and silently serve the default branch — read the API with
 | Static model list for a provider | `hermes_cli/models_catalog_static.py` |
 | Model metadata / capability fallbacks | `agent/models_dev.py`, `agent/model_metadata.py` |
 | How the home-manager module renders config | `nix/moduleCommon.nix`, `nix/configMergeScript.nix` |
+| State dir / install split | `nix/homeManagerModules.nix` — `services.hermes-agent.hermesHome` is the state directory; `programs.hermes-agent` installs the CLI and desktop |
 | Behaviour pinned to a fix (regression detail) | `tests/` — the test name states the contract |

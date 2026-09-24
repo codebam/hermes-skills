@@ -50,7 +50,9 @@ README.
 1. Recon: repo shape, LOC, file map, recent `git log` for direction, remotes (is there an upstream
    to compare against and mine for demand?).
 2. Capability inventory by layer — storage, inbound/processing, outbound, UI, API/tools, safety
-   gates — each row anchored to files.
+   gates — each row anchored to files. Enumerate tool registries and route tables by grepping
+   the registration syntax (`defineTool(`, `server.tool(`, `.get(`/`.post(`), never by reading
+   the files end to end.
 3. Grep every candidate gap; keep the anchor that proves absence.
 4. Check the upstream tracker and surveys for what users actually ask for.
 5. Assemble the document (shape below), save it under `.hermes/plans/` unless asked to commit it,
@@ -66,10 +68,38 @@ product in this domain does, grounded in at least one external source → gap ta
 (P0–P3: item | extension point | sketch) → cross-cutting prerequisites → open questions →
 suggested first PRs.
 
+## Answering a proposed feature in conversation
+
+The document is the artifact; a chat reply is a different shape. When the user names a
+specific feature ("what about X?", "could we add Y?"), lead with the answer to THAT question
+in one or two lines — feasible or not, and the one thing that blocks it — before anything
+else. A ranked catalogue presented ahead of the direct answer reads as dodging the question
+even when it contains the answer, and the user will simply ask again.
+
+Scoping a proposal means naming the concrete blocker read out of the code, not a general
+shape:
+
+- the missing column/table/index, and every path that must stamp it on entry (a retention
+  clock needs a timestamp the schema usually does not have);
+- the scheduler: whether a cron trigger or alarm handler is already wired, or the config entry
+  and handler that must be added;
+- where the side effects live — what the storage layer cannot do (deleting objects from a
+  bucket, calling an external API) belongs to the caller; point at the existing manual purge
+  path as the pattern to copy.
+
+State the hazard the design creates in the same breath as the plan. For retention/cleanup
+features: never backfill the new timestamp from an existing user- or sender-controlled date
+field, and leave pre-existing rows unstamped — otherwise the first sweep deletes data that was
+only just parked.
+
 ## Pitfalls
 
 - **An empty grep is only evidence if the search was broad enough** — search the symbol and its
   synonyms (`snooze`, `scheduled`, `defer`) before declaring a feature absent.
+- **A previous analysis is evidence about its commit, not about HEAD.** When a prior report
+  exists, diff HEAD against the commit it recorded (`git log --oneline <commit>..HEAD`) and
+  re-run the greps for every claim you intend to repeat — whole feature waves can land between
+  reports, and a stale "absent" claim poisons the ranking.
 - **Dead config reads as a feature.** A declared-and-defaulted setting that nothing consumes
   looks implemented from the type definitions; trace every setting to a reader.
 - **Don't rank by novelty.** The user's stated pain and the tracker's request counts outrank what

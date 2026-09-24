@@ -29,6 +29,57 @@ A credential sitting in `secrets.yaml` does nothing until all of:
 
 Verify names only: `cut -d= -f1 ~/.hermes/.env | sort`. Never print values.
 
+## Credential pools: which of several keys serves
+
+A provider with two keys is a pool, and "make Hermes use the other key" is
+an ordering change — never a new config key and never a new secret.
+
+- **Discovery order is env-var name order.** The provider plugin declares
+  `env_vars`; the pool appends the numbered siblings `VAR_2`, `VAR_3`, … up
+  to the first number whose variable does not resolve, seeding them in that
+  order with ascending priorities. `fill_first` (the default strategy)
+  selects `available[0]`, so `VAR` is tried before `VAR_2`.
+- **The lever is which secret holds which slot**: cross the placeholder
+  values in the `hermes-env` template — put the second key's placeholder in
+  the unnumbered slot. The pool shape and seeding order are untouched, and
+  so is every other harness (their wrappers read `/run/secrets/<name>`
+  directly; only Hermes reads the template).
+- **Say what happens to the other key.** Crossing values leaves the first
+  key as the fallback entry; a "that key only" request is a different edit
+  (drop the first key from the template). State which shape you shipped
+  instead of silently picking one.
+- **A swapped value clears stored exhaustion state.** The pool stores a
+  token fingerprint and clears the entry's status when the fingerprint
+  changes on seeding, so no `hermes auth reset` is needed after the switch
+  — prescribing one is wrong.
+- **`credential_pool_strategies.<provider>` is a strategy knob, not an
+  ordering knob** (`fill_first` / `round_robin` / `least_used` / `random`).
+  Priorities are normalized at load for `anthropic` only; for every other
+  provider the persisted auth.json order stands, which is why env-name
+  order is the initial order. Runtime reordering (`hermes auth priority`)
+  writes auth.json — not declarative, so do not reach for it in a flake
+  change.
+- **Confirm against the pinned source, not the docs**: provider
+  `plugins/model-providers/<name>/__init__.py` (`env_vars`),
+  `agent/credential_pool.py` (`_env_key_var_candidates`,
+  `get_pool_strategy`, `_select_unlocked`, `_upsert_entry`,
+  `_normalize_pool_priorities`).
+- **A running process keeps its old env.** End the report with the switch,
+  then `systemctl --user restart hermes-agent.service` and a Desktop
+  relaunch; the pool re-hydrates from `.env` at process start only. Before
+  claiming the swap is live, verify file AND process: compare `~/.hermes/.env`
+  slots against `/run/secrets/<name>` as equality booleans (never print
+  values), and compare the file's mtime with the consumers' start times —
+  `systemctl --user show hermes-agent.service -p ExecMainStartTimestamp` and
+  the desktop process (`pgrep -a -f hermes-desktop`). File older than the
+  commit that changed the template = the switch has not run yet; file newer
+  than a consumer = that consumer needs its restart. Do NOT check
+  `/proc/<pid>/environ` for these values: it is the exec-time snapshot and
+  does not reflect dotenv-loaded vars, so absence there proves nothing.
+  `hermes auth list` (run the binary from the unit's `ExecStart` path with
+  `HERMES_HOME` set) shows pool entries, seeding order and the active marker —
+  structure only, values stay out of view.
+
 ## Web search / extract backends
 
 Selection precedence (`agent/web_search_registry.py` docstring):
