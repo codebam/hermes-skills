@@ -1,0 +1,24 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "<app-name>-test",
+	"compatibility_date": "<match the production config>",
+	"main": "./workers/app.ts",
+	"compatibility_flags": ["nodejs_compat"],
+	"vars": {
+		"DOMAINS": "example.com"
+	},
+	"r2_buckets": [
+		{
+			"binding": "BUCKET",
+			"bucket_name": "<app-name>-test"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{ "name": "MAILBOX", "class_name": "MailboxDO" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["MailboxDO"] }
+	]
+}
